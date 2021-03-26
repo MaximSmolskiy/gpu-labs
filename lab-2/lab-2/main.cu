@@ -61,7 +61,6 @@ void gpuMultiplyMatrices(double const *const a, double const *const b, double *c
     dim3 const block_dimensions(block_size, block_size);
     dim3 const grid_dimensions((n + block_dimensions.x - 1) / block_dimensions.x, (n + block_dimensions.y - 1) / block_dimensions.y);
     gpuMatrixMultiplicationKernel<<<grid_dimensions, block_dimensions>>>(device_a, device_b, device_c, n);
-    cudaDeviceSynchronize();
 
     cudaMemcpy(c, device_c, n * n * sizeof(double), cudaMemcpyDeviceToHost);
 
