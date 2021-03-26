@@ -3,9 +3,6 @@
 #include <iostream>
 #include <random>
 
-#include "cuda_runtime.h"
-#include "device_launch_parameters.h"
-
 double *randomMatrix(double const minimum_value, double const maximum_value, size_t const n) {
     std::random_device random_device;
     std::mt19937 generator(random_device());
