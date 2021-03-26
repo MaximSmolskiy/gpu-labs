@@ -6,113 +6,113 @@
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 
-double *randomMatrix(double const minimum_value, double const maximum_value, size_t const N) {
+double *randomMatrix(double const minimum_value, double const maximum_value, size_t const n) {
     std::random_device random_device;
     std::mt19937 generator(random_device());
     std::uniform_real_distribution<double> const uniform_real_distribution(minimum_value, maximum_value);
-    double *const random_matrix = new double[N * N];
-    for (size_t i = 0; i < N; ++i) {
-        for (size_t j = 0; j < N; ++j) {
-            random_matrix[i * N + j] = uniform_real_distribution(generator);
+    double *const random_matrix = new double[n * n];
+    for (size_t i = 0; i < n; ++i) {
+        for (size_t j = 0; j < n; ++j) {
+            random_matrix[i * n + j] = uniform_real_distribution(generator);
         }
     }
     return random_matrix;
 }
 
-void cpuMultiplyMatrices(double const *const A, double const *const B, double *const C, size_t const N) {
-    for (size_t i = 0; i < N; ++i) {
-        for (size_t j = 0; j < N; ++j) {
-            double C_i_j = 0;
-            for (size_t k = 0; k < N; ++k) {
-                C_i_j += A[i * N + k] * B[k * N + j];
+void cpuMultiplyMatrices(double const *const a, double const *const b, double *const c, size_t const n) {
+    for (size_t i = 0; i < n; ++i) {
+        for (size_t j = 0; j < n; ++j) {
+            double c_i_j = 0;
+            for (size_t k = 0; k < n; ++k) {
+                c_i_j += a[i * n + k] * b[k * n + j];
             }
-            C[i * N + j] = C_i_j;
+            c[i * n + j] = c_i_j;
         }
     }
 }
 
-__global__ void gpuMatrixMultiplicationKernel(double const *const A, double const *const B, double *const C, size_t const N) {
+__global__ void gpuMatrixMultiplicationKernel(double const *const a, double const *const b, double *const c, size_t const n) {
     size_t const i = blockIdx.y * blockDim.y + threadIdx.y;
     size_t const j = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (i >= N || j >= N) {
+    if (i >= n || j >= n) {
         return;
     }
 
-    double C_i_j = 0;
-    for (size_t k = 0; k < N; ++k) {
-        C_i_j += A[i * N + k] * B[k * N + j];
+    double c_i_j = 0;
+    for (size_t k = 0; k < n; ++k) {
+        c_i_j += a[i * n + k] * b[k * n + j];
     }
-    C[i * N + j] = C_i_j;
+    c[i * n + j] = c_i_j;
 }
 
-void gpuMultiplyMatrices(double const *const A, double const *const B, double *const C, size_t const N, size_t const BLOCK_SIZE) {
-    double *device_A;
-    double *device_B;
-    double *device_C;
+void gpuMultiplyMatrices(double const *const a, double const *const b, double *const c, size_t const n, size_t const block_size) {
+    double *device_a;
+    double *device_b;
+    double *device_c;
 
-    cudaMalloc(&device_A, N * N * sizeof(double));
-    cudaMalloc(&device_B, N * N * sizeof(double));
-    cudaMalloc(&device_C, N * N * sizeof(double));
+    cudaMalloc(&device_a, n * n * sizeof(double));
+    cudaMalloc(&device_b, n * n * sizeof(double));
+    cudaMalloc(&device_c, n * n * sizeof(double));
 
-    cudaMemcpy(device_A, A, N * N * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(device_B, B, N * N * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(device_a, a, n * n * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(device_b, b, n * n * sizeof(double), cudaMemcpyHostToDevice);
 
-    dim3 const block_dimensions(BLOCK_SIZE, BLOCK_SIZE);
-    dim3 const grid_dimensions((N + block_dimensions.x - 1) / block_dimensions.x, (N + block_dimensions.y - 1) / block_dimensions.y);
-    gpuMatrixMultiplicationKernel<<<grid_dimensions, block_dimensions>>>(device_A, device_B, device_C, N);
+    dim3 const block_dimensions(block_size, block_size);
+    dim3 const grid_dimensions((n + block_dimensions.x - 1) / block_dimensions.x, (n + block_dimensions.y - 1) / block_dimensions.y);
+    gpuMatrixMultiplicationKernel<<<grid_dimensions, block_dimensions>>>(device_a, device_b, device_c, n);
     cudaDeviceSynchronize();
 
-    cudaMemcpy(C, device_C, N * N * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(c, device_c, n * n * sizeof(double), cudaMemcpyDeviceToHost);
 
-    cudaFree(device_A);
-    cudaFree(device_B);
-    cudaFree(device_C);
+    cudaFree(device_a);
+    cudaFree(device_b);
+    cudaFree(device_c);
 }
 
-double maximumMatrixDeviation(double const *const A, double const *const B, size_t const N) {
+double maximumMatrixDeviation(double const *const a, double const *const b, size_t const n) {
     double maximum_matrix_deviation = 0;
-    for (size_t i = 0; i < N; ++i) {
-        for (size_t j = 0; j < N; ++j) {
-            maximum_matrix_deviation = std::max(maximum_matrix_deviation, std::abs(A[i * N + j] - B[i * N + j]));
+    for (size_t i = 0; i < n; ++i) {
+        for (size_t j = 0; j < n; ++j) {
+            maximum_matrix_deviation = std::max(maximum_matrix_deviation, std::abs(a[i * n + j] - b[i * n + j]));
         }
     }
     return maximum_matrix_deviation;
 }
 
 int main(int argc, char *argv []) {
-    size_t const N = std::strtoumax(argv[1], nullptr, 10);
-    std::cout << "N = " << N << std::endl;
+    size_t const n = std::strtoumax(argv[1], nullptr, 10);
+    std::cout << "n = " << n << std::endl;
 
     double const MINIMUM_VALUE = -10;
     double const MAXIMUM_VALUE = 10;
-    double const *const A = randomMatrix(MINIMUM_VALUE, MAXIMUM_VALUE, N);
-    double const *const B = randomMatrix(MINIMUM_VALUE, MAXIMUM_VALUE, N);
+    double const *const a = randomMatrix(MINIMUM_VALUE, MAXIMUM_VALUE, n);
+    double const *const b = randomMatrix(MINIMUM_VALUE, MAXIMUM_VALUE, n);
 
-    double *const CPU_C = new double[N * N];
+    double *const cpu_c = new double[n * n];
     {
         auto const start = std::chrono::high_resolution_clock::now();
-        cpuMultiplyMatrices(A, B, CPU_C, N);
+        cpuMultiplyMatrices(a, b, cpu_c, n);
         auto const end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> const elapsed_seconds = end - start;
         std::cout << "CPU elapsed time = " << elapsed_seconds.count() << " seconds" << std::endl;
     }
 
     size_t const BLOCK_SIZE = 32;
-    double *const GPU_C = new double[N * N];
+    double *const gpu_c = new double[n * n];
     {
         auto const start = std::chrono::high_resolution_clock::now();
-        gpuMultiplyMatrices(A, B, GPU_C, N, BLOCK_SIZE);
+        gpuMultiplyMatrices(a, b, gpu_c, n, BLOCK_SIZE);
         auto const end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> const elapsed_seconds = end - start;
         std::cout << "GPU elapsed time = " << elapsed_seconds.count() << " seconds" << std::endl;
     }
 
-    delete[] A;
-    delete[] B;
+    delete[] a;
+    delete[] b;
 
-    std::cout << "maximum CPU and GPU matrix deviation = " << maximumMatrixDeviation(CPU_C, GPU_C, N) << std::endl;
+    std::cout << "maximum CPU and GPU matrix deviation = " << maximumMatrixDeviation(cpu_c, gpu_c, n) << std::endl;
 
-    delete[] CPU_C;
-    delete[] GPU_C;
+    delete[] cpu_c;
+    delete[] gpu_c;
 }
