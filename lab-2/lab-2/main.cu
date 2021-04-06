@@ -102,7 +102,7 @@ void gpuMultiplyMatrices(float const *const a, float const *const b, float *cons
     if (shared_memory) {
         std::cout << "GPU shared memory elapsed time = ";
     } else {
-        std::cout << "GPU elapsed time = ";;
+        std::cout << "GPU elapsed time = ";
     }
     std::cout << elapsed_seconds.count() << " seconds" << std::endl;
 
