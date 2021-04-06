@@ -141,7 +141,7 @@ int main(int argc, char *argv []) {
     delete[] a;
     delete[] b;
 
-    std::cout << "maximum CPU and GPU matrix deviation = " << maximumMatrixDeviation(gpu_c, gpu_shared_memory_c, n) << std::endl;
+    std::cout << "maximum GPU and GPU shared memory matrix deviation = " << maximumMatrixDeviation(gpu_c, gpu_shared_memory_c, n) << std::endl;
 
     delete[] gpu_c;
     delete[] gpu_shared_memory_c;
