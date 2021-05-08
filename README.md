@@ -1,2 +1,7 @@
-# gpu-labs
-GPU computing labs
+# Программирование графических процессоров
+
+## Лабораторные
+
+* Matrix multiplication
+
+* Matrix multiplication with shared memory
