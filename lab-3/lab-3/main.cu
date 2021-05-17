@@ -64,17 +64,16 @@ __global__ void gpuWarpIntrinsicsMatrixMultiplicationKernel(float const *const a
     float column_c[BLOCK_SIZE] = { 0 };
     for (size_t submatrix_index = 0; submatrix_index * BLOCK_SIZE < n; ++submatrix_index) {
         for (size_t k = 0; k < BLOCK_SIZE; ++k) {
-            size_t const submatrix_a_j = submatrix_index * BLOCK_SIZE + k;
-            size_t const submatrix_b_i = submatrix_index * BLOCK_SIZE + k;
-
             float a_i_k = 0;
             float b_k_j = 0;
 
             size_t const i = start_i + threadIdx.x;
+            size_t const submatrix_a_j = submatrix_index * BLOCK_SIZE + k;
             if (i < n && submatrix_a_j < n) {
                 a_i_k = a[i * n + submatrix_a_j];
             }
 
+            size_t const submatrix_b_i = submatrix_index * BLOCK_SIZE + k;
             if (submatrix_b_i < n && j < n) {
                 b_k_j = b[submatrix_b_i * n + j];
             }
