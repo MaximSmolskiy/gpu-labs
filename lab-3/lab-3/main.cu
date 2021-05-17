@@ -21,21 +21,6 @@ float *randomMatrix(float const minimum_value, float const maximum_value, size_t
     return random_matrix;
 }
 
-__global__ void gpuMatrixMultiplicationKernel(float const *const a, float const *const b, float *const c, size_t const n) {
-    size_t const i = blockIdx.y * blockDim.y + threadIdx.y;
-    size_t const j = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if (i >= n || j >= n) {
-        return;
-    }
-
-    float c_i_j = 0;
-    for (size_t k = 0; k < n; ++k) {
-        c_i_j += a[i * n + k] * b[k * n + j];
-    }
-    c[i * n + j] = c_i_j;
-}
-
 __global__ void gpuSharedMemoryMatrixMultiplicationKernel(float const *const a, float const *const b, float *const c, size_t const n) {
     size_t const i = blockIdx.y * BLOCK_SIZE + threadIdx.y;
     size_t const j = blockIdx.x * BLOCK_SIZE + threadIdx.x;
@@ -72,7 +57,43 @@ __global__ void gpuSharedMemoryMatrixMultiplicationKernel(float const *const a, 
     }
 }
 
-void gpuMultiplyMatrices(float const *const a, float const *const b, float *const c, size_t const n, bool const shared_memory) {
+__global__ void gpuWarpIntrinsicsMatrixMultiplicationKernel(float const *const a, float const *const b, float *const c, size_t const n) {
+    size_t const i = blockIdx.y * BLOCK_SIZE + threadIdx.y;
+    size_t const j = blockIdx.x * BLOCK_SIZE + threadIdx.x;
+
+    float c_i_j = 0;
+    for (size_t submatrix_index = 0; submatrix_index * BLOCK_SIZE < n; ++submatrix_index) {
+        __shared__ float submatrix_a[BLOCK_SIZE][BLOCK_SIZE];
+        __shared__ float submatrix_b[BLOCK_SIZE][BLOCK_SIZE];
+
+        submatrix_a[threadIdx.y][threadIdx.x] = 0;
+        submatrix_b[threadIdx.y][threadIdx.x] = 0;
+
+        size_t const submatrix_a_j = submatrix_index * BLOCK_SIZE + threadIdx.x;
+        if (i < n && submatrix_a_j < n) {
+            submatrix_a[threadIdx.y][threadIdx.x] = a[i * n + submatrix_a_j];
+        }
+
+        size_t const submatrix_b_i = submatrix_index * BLOCK_SIZE + threadIdx.y;
+        if (submatrix_b_i < n && j < n) {
+            submatrix_b[threadIdx.y][threadIdx.x] = b[submatrix_b_i * n + j];
+        }
+
+        __syncthreads();
+
+        for (size_t k = 0; k < BLOCK_SIZE; ++k) {
+            c_i_j += submatrix_a[threadIdx.y][k] * submatrix_b[k][threadIdx.x];
+        }
+
+        __syncthreads();
+    }
+
+    if (i < n && j < n) {
+        c[i * n + j] = c_i_j;
+    }
+}
+
+void gpuMultiplyMatrices(float const *const a, float const *const b, float *const c, size_t const n, bool const warp_intrinsics) {
     float *device_a;
     float *device_b;
     float *device_c;
@@ -89,20 +110,20 @@ void gpuMultiplyMatrices(float const *const a, float const *const b, float *cons
 
     auto const start = std::chrono::high_resolution_clock::now();
 
-    if (shared_memory) {
-        gpuSharedMemoryMatrixMultiplicationKernel<<<grid_dimensions, block_dimensions>>>(device_a, device_b, device_c, n);
+    if (warp_intrinsics) {
+        gpuWarpIntrinsicsMatrixMultiplicationKernel<<<grid_dimensions, block_dimensions>>>(device_a, device_b, device_c, n);
     } else {
-        gpuMatrixMultiplicationKernel<<<grid_dimensions, block_dimensions>>>(device_a, device_b, device_c, n);
+        gpuSharedMemoryMatrixMultiplicationKernel<<<grid_dimensions, block_dimensions>>>(device_a, device_b, device_c, n);
     }
     cudaDeviceSynchronize();
 
     auto const end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> const elapsed_seconds = end - start;
 
-    if (shared_memory) {
-        std::cout << "GPU shared memory elapsed time = ";
+    if (warp_intrinsics) {
+        std::cout << "GPU warp intrinsics elapsed time = ";
     } else {
-        std::cout << "GPU elapsed time = ";
+        std::cout << "GPU shared memory elapsed time = ";
     }
     std::cout << elapsed_seconds.count() << " seconds" << std::endl;
 
@@ -132,17 +153,17 @@ int main(int argc, char *argv []) {
     float const *const a = randomMatrix(MINIMUM_VALUE, MAXIMUM_VALUE, n);
     float const *const b = randomMatrix(MINIMUM_VALUE, MAXIMUM_VALUE, n);
 
-    float *const gpu_c = new float[n * n];
-    gpuMultiplyMatrices(a, b, gpu_c, n, false);
-
     float *const gpu_shared_memory_c = new float[n * n];
-    gpuMultiplyMatrices(a, b, gpu_shared_memory_c, n, true);
+    gpuMultiplyMatrices(a, b, gpu_shared_memory_c, n, false);
+
+    float *const gpu_warp_intrinsics_c = new float[n * n];
+    gpuMultiplyMatrices(a, b, gpu_warp_intrinsics_c, n, true);
 
     delete[] a;
     delete[] b;
 
-    std::cout << "maximum GPU and GPU shared memory matrix deviation = " << maximumMatrixDeviation(gpu_c, gpu_shared_memory_c, n) << std::endl;
+    std::cout << "maximum GPU shared memory and warp intrinsics matrix deviation = " << maximumMatrixDeviation(gpu_shared_memory_c, gpu_warp_intrinsics_c, n) << std::endl;
 
-    delete[] gpu_c;
     delete[] gpu_shared_memory_c;
+    delete[] gpu_warp_intrinsics_c;
 }
