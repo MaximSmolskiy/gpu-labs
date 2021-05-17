@@ -58,38 +58,38 @@ __global__ void gpuSharedMemoryMatrixMultiplicationKernel(float const *const a, 
 }
 
 __global__ void gpuWarpIntrinsicsMatrixMultiplicationKernel(float const *const a, float const *const b, float *const c, size_t const n) {
-    size_t const i = blockIdx.y * BLOCK_SIZE + threadIdx.y;
+    size_t const start_i = blockIdx.y * BLOCK_SIZE;
     size_t const j = blockIdx.x * BLOCK_SIZE + threadIdx.x;
 
-    float c_i_j = 0;
+    float column_c[BLOCK_SIZE] = { 0 };
     for (size_t submatrix_index = 0; submatrix_index * BLOCK_SIZE < n; ++submatrix_index) {
-        __shared__ float submatrix_a[BLOCK_SIZE][BLOCK_SIZE];
-        __shared__ float submatrix_b[BLOCK_SIZE][BLOCK_SIZE];
-
-        submatrix_a[threadIdx.y][threadIdx.x] = 0;
-        submatrix_b[threadIdx.y][threadIdx.x] = 0;
-
-        size_t const submatrix_a_j = submatrix_index * BLOCK_SIZE + threadIdx.x;
-        if (i < n && submatrix_a_j < n) {
-            submatrix_a[threadIdx.y][threadIdx.x] = a[i * n + submatrix_a_j];
-        }
-
-        size_t const submatrix_b_i = submatrix_index * BLOCK_SIZE + threadIdx.y;
-        if (submatrix_b_i < n && j < n) {
-            submatrix_b[threadIdx.y][threadIdx.x] = b[submatrix_b_i * n + j];
-        }
-
-        __syncthreads();
-
         for (size_t k = 0; k < BLOCK_SIZE; ++k) {
-            c_i_j += submatrix_a[threadIdx.y][k] * submatrix_b[k][threadIdx.x];
-        }
+            size_t const submatrix_a_j = submatrix_index * BLOCK_SIZE + k;
+            size_t const submatrix_b_i = submatrix_index * BLOCK_SIZE + k;
 
-        __syncthreads();
+            float a_i_k = 0;
+            float b_k_j = 0;
+
+            size_t const i = start_i + threadIdx.x;
+            if (i < n && submatrix_a_j < n) {
+                a_i_k = a[i * n + submatrix_a_j];
+            }
+
+            if (submatrix_b_i < n && j < n) {
+                b_k_j = b[submatrix_b_i * n + j];
+            }
+
+            for (size_t l = 0; l < BLOCK_SIZE; ++l) {
+                column_c[l] += __shfl_sync(0xFFFFFFFF, a_i_k, l) * b_k_j;
+            }
+        }
     }
 
-    if (i < n && j < n) {
-        c[i * n + j] = c_i_j;
+    for (size_t l = 0; l < BLOCK_SIZE; ++l) {
+        size_t const i = start_i + l;
+        if (i < n && j < n) {
+            c[i * n + j] = column_c[l];
+        }
     }
 }
 
@@ -105,14 +105,15 @@ void gpuMultiplyMatrices(float const *const a, float const *const b, float *cons
     cudaMemcpy(device_a, a, n * n * sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(device_b, b, n * n * sizeof(float), cudaMemcpyHostToDevice);
 
-    dim3 const block_dimensions(BLOCK_SIZE, BLOCK_SIZE);
-    dim3 const grid_dimensions((n + block_dimensions.x - 1) / block_dimensions.x, (n + block_dimensions.y - 1) / block_dimensions.y);
-
     auto const start = std::chrono::high_resolution_clock::now();
 
     if (warp_intrinsics) {
+        dim3 const block_dimensions(BLOCK_SIZE, 1);
+        dim3 const grid_dimensions((n + block_dimensions.x - 1) / block_dimensions.x, (n + BLOCK_SIZE - 1) / BLOCK_SIZE);
         gpuWarpIntrinsicsMatrixMultiplicationKernel<<<grid_dimensions, block_dimensions>>>(device_a, device_b, device_c, n);
     } else {
+        dim3 const block_dimensions(BLOCK_SIZE, BLOCK_SIZE);
+        dim3 const grid_dimensions((n + block_dimensions.x - 1) / block_dimensions.x, (n + block_dimensions.y - 1) / block_dimensions.y);
         gpuSharedMemoryMatrixMultiplicationKernel<<<grid_dimensions, block_dimensions>>>(device_a, device_b, device_c, n);
     }
     cudaDeviceSynchronize();
