@@ -3,6 +3,7 @@
 #include <iostream>
 #include <random>
 
+#include "cooperative_groups.h"
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
 
@@ -58,8 +59,14 @@ __global__ void gpuSharedMemoryMatrixMultiplicationKernel(float const *const a, 
 }
 
 __global__ void gpuWarpIntrinsicsMatrixMultiplicationKernel(float const *const a, float const *const b, float *const c, size_t const n) {
-    size_t const start_i = blockIdx.y * BLOCK_SIZE;
-    size_t const j = blockIdx.x * BLOCK_SIZE + threadIdx.x;
+    auto const block = cooperative_groups::this_thread_block();
+    auto const block_index = block.group_index();
+    auto const thread_index = block.thread_index();
+
+    auto const warp = cooperative_groups::tiled_partition<BLOCK_SIZE>(block);
+
+    size_t const start_i = block_index.y * BLOCK_SIZE;
+    size_t const j = block_index.x * BLOCK_SIZE + thread_index.x;
 
     float column_c[BLOCK_SIZE] = { 0 };
     for (size_t submatrix_index = 0; submatrix_index * BLOCK_SIZE < n; ++submatrix_index) {
@@ -67,7 +74,7 @@ __global__ void gpuWarpIntrinsicsMatrixMultiplicationKernel(float const *const a
             float a_i_k = 0;
             float b_k_j = 0;
 
-            size_t const i = start_i + threadIdx.x;
+            size_t const i = start_i + thread_index.x;
             size_t const submatrix_a_j = submatrix_index * BLOCK_SIZE + k;
             if (i < n && submatrix_a_j < n) {
                 a_i_k = a[i * n + submatrix_a_j];
@@ -79,7 +86,7 @@ __global__ void gpuWarpIntrinsicsMatrixMultiplicationKernel(float const *const a
             }
 
             for (size_t l = 0; l < BLOCK_SIZE; ++l) {
-                column_c[l] += __shfl_sync(0xFFFFFFFF, a_i_k, l) * b_k_j;
+                column_c[l] += warp.shfl(a_i_k, l) * b_k_j;
             }
         }
     }
