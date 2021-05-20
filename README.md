@@ -5,3 +5,5 @@
 * Matrix multiplication
 
 * Matrix multiplication with shared memory
+
+* Matrix multiplication with warp intrinsics
